@@ -29,42 +29,44 @@ with open("resume.txt", "r", encoding="utf-8") as f:
 #print(resume)
 
 name = "Miguel de la Ossa Abellán"
-system_prompt = f"Estás actuando como {name}. Estás respondiendo a preguntas en el sitio web de {name}, " + \
+system_prompt = (f"Estás actuando como {name}. Estás respondiendo a preguntas en el sitio web de {name}, " + \
     "particularment preguntas relacionadas con la carrera, antecedentes, habilidades y experiencia de {name}. " + \
     "Tu responsabilidad es representar a {name} para las interacciones en el sitio web de la manera más fiel posible. " + \
     "Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas. " + \
     "Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web. " + \
     "Si te preguntan en inglés, contesta en inglés. Si lo hacen en español, contesta en español. " + \
-    "Si no sabes la respuesta, dilo."
+    "Si no sabes la respuesta, dilo. " + \
+    "Antes de que te pregunten nada, implementa un saludo inicial en el que muestres tu nombre y tu perfil profesional muy resumido, " + \
+    "e invita a que te hagan alguna pregunta.")
 
 system_prompt += f"\n\n## Resumen:\n{resume}\n\n## Perfil de LinedIn:\n{profile}\n\n"
 system_prompt += f"Con este contexto, por favor chatea con el usuario, manteniéndote siempre en el personaje de {name}."
 
 #print(system_prompt)
 
-def chat(message, history):
-    messages = [{"role": "system", "content": prompt}]
-
-    for item in history:
-        if isinstance(item, dict):
-            role = item.get("role")
-            content = item.get("content")
-            if role and content:
-                messages.append({"role": role, "content": content})
-        elif isinstance(item, (list, tuple)):
-            if len(item) >= 1 and item[0]:
-                messages.append({"role": "user", "content": item[0]})
-            if len(item) >= 2 and item[1]:
-                messages.append({"role": "assistant", "content": item[1]})
-
-    messages.append({"role": "user", "content": message})
-
-    response = openai_client.chat.completions.create(
-        model="o4-mini",
-        messages=messages
-    )
-
-    return response.choices[0].message.content
+# def chat(message, history):
+#     messages = [{"role": "system", "content": system_prompt}]
+#
+#     for item in history:
+#         if isinstance(item, dict):
+#             role = item.get("role")
+#             content = item.get("content")
+#             if role and content:
+#                 messages.append({"role": role, "content": content})
+#         elif isinstance(item, (list, tuple)):
+#             if len(item) >= 1 and item[0]:
+#                 messages.append({"role": "user", "content": item[0]})
+#             if len(item) >= 2 and item[1]:
+#                 messages.append({"role": "assistant", "content": item[1]})
+#
+#     messages.append({"role": "user", "content": message})
+#
+#     response = openai_client.chat.completions.create(
+#         model="o4-mini",
+#         messages=messages
+#     )
+#
+#     return response.choices[0].message.content
 
 # gr.ChatInterface(chat).launch()
 
@@ -99,12 +101,12 @@ def evaluate(answer, message, history) -> Evaluation:
     answer_eval = gemini.beta.chat.completions.parse(model="gemini-flash-latest", messages=messages, response_format=Evaluation)
     return answer_eval.choices[0].message.parsed
 
-question = "¿Qué idiomas manejas?"
-messages = [{"role": "system", "content": system_prompt}] + [{"role": "user", "content": question}]
-answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
-chat_response = answer.choices[0].message.content
-
-print(chat_response)
+# question = "¿Qué idiomas manejas?"
+# messages = [{"role": "system", "content": system_prompt}] + [{"role": "user", "content": question}]
+# answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
+# chat_response = answer.choices[0].message.content
+#
+# print(chat_response)
 
 # print(evaluate(chat_response, question, messages[:1]))
 
@@ -118,8 +120,18 @@ def rexecute(answer, message, history, retroalimentation):
     return new_answer.choices[0].message.content
 
 def chatting(message, history):
-    system = system_prompt
-    messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": message}]
+    #system = system_prompt
+    # Si es la primera vez (no hay historia), ignoramos `message` y pedimos solo el saludo
+    if not history:
+        messages = [{"role": "system", "content": system_prompt}]
+        answer = openai_client.chat.completions.create(
+            model="o4-mini",
+            messages=messages
+        )
+        chat_response = answer.choices[0].message.content
+        return chat_response
+
+    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
     answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
     chat_response = answer.choices[0].message.content
 
@@ -132,5 +144,19 @@ def chatting(message, history):
         print(evaluation.retroalimentation)
         chat_response = rexecute(chat_response, message, history, evaluation.retroalimentation)
     return chat_response
+
+intro = (f"Hola, soy {name}, desarrollador de software especializado en COBOL y soluciones multiplataforma. ¿En qué puedo ayudarte hoy?\n\n" + \
+         f"Hello, I'm {name}, a software developer specialized in COBOL and multi-platform solutions. How can I help you today?")
+
+chatbot = gr.Chatbot(
+    value=[{"role": "assistant", "content": intro}],
+    height=600,           # por ejemplo 600 px en vez de 400
+)
+
+gr.ChatInterface(
+    fn=chatting,
+    chatbot=chatbot,
+    title="Asistente del currículum de Miguel de la Ossa Abellán",
+).launch()
 
 gr.ChatInterface(chatting).launch()
