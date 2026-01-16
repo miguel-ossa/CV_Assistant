@@ -163,8 +163,9 @@ def evaluate(answer, message, history) -> Evaluation:
 def rexecute(answer, message, history, retroalimentation):
     system_prompt_updated = system_prompt + "\n\n## Respuesta anterior rechazada." + \
         "\nAcabas de intentar responder, pero el control de calidad rechazó tu respuesta.\n"
-    system_prompt_updated += f"## Tu redspuesta intentada:\n{answer}\n\n"
+    system_prompt_updated += f"## Tu respuesta intentada:\n{answer}\n\n"
     system_prompt_updated += f"## Razón del rechazo:\n{retroalimentation}\n\n"
+    print(f"{system_prompt_updated}")
     messages = [{"role": "system", "content": system_prompt_updated}] + history + [{"role": "user", "content": message}]
     new_answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
     return new_answer.choices[0].message.content
