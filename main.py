@@ -1,12 +1,28 @@
+from collections import defaultdict
+
 from dotenv import load_dotenv
 from openai import OpenAI
-from pypdf import PdfReader
 import pdfplumber
 from pydantic import BaseModel
-import os
 import gradio as gr
 from alerts import *
-import re
+
+MAX_TOKENS_PER_IP = 5_000
+token_usage = defaultdict(int)
+
+def is_over_budget(ip: str) -> bool:
+    return token_usage[ip] >= MAX_TOKENS_PER_IP
+
+def estimate_tokens(text: str) -> int:
+    # ~1 token cada 4 caracteres (regla empírica)
+    return max(1, len(text) // 4)
+
+def register_token_usage(ip: str, texts: list[str]):
+    total = sum(estimate_tokens(t) for t in texts)
+    token_usage[ip] += total
+    return token_usage[ip]
+
+abuse_notified = set()
 
 load_dotenv(override=True)
 openai_client = OpenAI()
@@ -30,12 +46,12 @@ with open("resume.txt", "r", encoding="utf-8") as f:
 #print(resume)
 
 name = "Miguel de la Ossa Abellán"
-system_prompt = (f"Estás actuando como {name}. Estás respondiendo a preguntas en el sitio web de {name}, " + \
-    "particularment preguntas relacionadas con la carrera, antecedentes, habilidades y experiencia de {name}. " + \
-    "Tu responsabilidad es representar a {name} para las interacciones en el sitio web de la manera más fiel posible. " + \
-    "Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas. " + \
-    "Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web. " + \
-    "Si te preguntan en inglés, contesta en inglés. Si lo hacen en español, contesta en español. " + \
+system_prompt = (f"Estás actuando como {name}. Estás respondiendo a preguntas en el sitio web de {name}, " +
+    "particularment preguntas relacionadas con la carrera, antecedentes, habilidades y experiencia de {name}. " +
+    "Tu responsabilidad es representar a {name} para las interacciones en el sitio web de la manera más fiel posible. " +
+    "Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas. " +
+    "Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web. " +
+    "Si te preguntan en inglés, contesta en inglés. Si lo hacen en español, contesta en español. " +
     "Si no sabes la respuesta, dilo. ")
 
 system_prompt += f"\n\n## Resumen:\n{resume}\n\n## Perfil de LinedIn:\n{profile}\n\n"
@@ -89,6 +105,17 @@ def safe_gemini_evaluate(messages):
         )
         raise
 
+def notify_abuse(event, ip, message, usage):
+    send_error_email(
+        subject=f"Abuso detectado: {event}",
+        error=Exception(event),
+        context={
+            "ip": ip,
+            "message": message,
+            "token_usage": usage
+        }
+    )
+
 class Evaluation(BaseModel):
     is_acceptable: bool
     retroalimentation: str
@@ -99,6 +126,10 @@ prompt_evaluation_system = f"Eres un evaluador que decide si una respuesta a una
     "El agente está interpretando del papel de {name} y está representando a {name} en su sitio web. " + \
     "Se ha instruido al agente para que sea profesional y atractivo, como si hablara con un cliente potencial " + \
     "o futuro empleador que se encontró con el sitio web. " + \
+    "Pero debes asegurarte de que no inventa nada que no esté en su resumen ni en los detalles de LinkedIn; " + \
+    "controla que el agente no cree detalles inexistentes. " + \
+    "Tampoco aceptes ninguna propuesta de trabajo. En ese caso, invita al posible empleador a enviar un " + \
+    "email a la dirección que figura en el perfil de LinkedIn o en el currículum. " + \
     "Se ha proporcionado al agente el contexto sobre {name} en forma de su resumen y detalles en LinkedIn. " + \
     "Aquí está la información:"
 
@@ -164,7 +195,32 @@ def rexecute(answer, message, history, retroalimentation):
 #         chat_response = rexecute(chat_response, message, history, evaluation.retroalimentation)
 #     return chat_response
 
-def chatting(message, history):
+def chatting(message, history, request: gr.Request | None = None):
+    ip = "unknown"
+
+    if request and request.client:
+        ip = request.client.host
+
+    # 1️⃣ ¿Presupuesto agotado?
+    if is_over_budget(ip):
+
+        if ip not in abuse_notified:
+            notify_abuse(
+                event="Presupuesto de tokens agotado",
+                ip=ip,
+                message=message,
+                usage=token_usage[ip]
+            )
+            abuse_notified.add(ip)
+
+        return (
+            "Has alcanzado el límite de uso para esta sesión. "
+            "Si deseas continuar, contáctame directamente."
+        )
+
+    # 2️⃣ Registrar input del usuario
+    register_token_usage(ip, [message])
+
     try:
         if not history:
             return safe_openai_chat(
@@ -205,7 +261,7 @@ def chatting(message, history):
             "He sido notificado automáticamente y lo revisaré en breve."
         )
 
-intro = (f"Hola, soy {name}, desarrollador de software especializado en COBOL y soluciones multiplataforma. ¿En qué puedo ayudarte hoy?\n\n" + \
+intro = (f"Hola, soy {name}, desarrollador de software especializado en COBOL y soluciones multiplataforma. ¿En qué puedo ayudarte hoy?\n\n" +
          f"Hello, I'm {name}, a software developer specialized in COBOL and multi-platform solutions. How can I help you today?")
 
 chatbot = gr.Chatbot(
@@ -217,6 +273,6 @@ gr.ChatInterface(
     fn=chatting,
     chatbot=chatbot,
     title=f"Asistente del currículum de {name}"
-).launch()
+).queue().launch()
 
 gr.ChatInterface(chatting).launch()
