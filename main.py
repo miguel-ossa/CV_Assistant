@@ -5,6 +5,7 @@ import pdfplumber
 from pydantic import BaseModel
 import os
 import gradio as gr
+from alerts import *
 import re
 
 load_dotenv(override=True)
@@ -35,46 +36,64 @@ system_prompt = (f"Estás actuando como {name}. Estás respondiendo a preguntas 
     "Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas. " + \
     "Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web. " + \
     "Si te preguntan en inglés, contesta en inglés. Si lo hacen en español, contesta en español. " + \
-    "Si no sabes la respuesta, dilo. " + \
-    "Antes de que te pregunten nada, implementa un saludo inicial en el que muestres tu nombre y tu perfil profesional muy resumido, " + \
-    "e invita a que te hagan alguna pregunta.")
+    "Si no sabes la respuesta, dilo. ")
 
 system_prompt += f"\n\n## Resumen:\n{resume}\n\n## Perfil de LinedIn:\n{profile}\n\n"
 system_prompt += f"Con este contexto, por favor chatea con el usuario, manteniéndote siempre en el personaje de {name}."
 
 #print(system_prompt)
 
-# def chat(message, history):
-#     messages = [{"role": "system", "content": system_prompt}]
-#
-#     for item in history:
-#         if isinstance(item, dict):
-#             role = item.get("role")
-#             content = item.get("content")
-#             if role and content:
-#                 messages.append({"role": role, "content": content})
-#         elif isinstance(item, (list, tuple)):
-#             if len(item) >= 1 and item[0]:
-#                 messages.append({"role": "user", "content": item[0]})
-#             if len(item) >= 2 and item[1]:
-#                 messages.append({"role": "assistant", "content": item[1]})
-#
-#     messages.append({"role": "user", "content": message})
-#
-#     response = openai_client.chat.completions.create(
-#         model="o4-mini",
-#         messages=messages
-#     )
-#
-#     return response.choices[0].message.content
+def safe_openai_chat(model, messages, context=None):
+    try:
+        response = openai_client.chat.completions.create(
+            model=model,
+            messages=messages
+        )
 
-# gr.ChatInterface(chat).launch()
+        if not response.choices:
+            raise ValueError("Respuesta sin choices")
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        send_error_email(
+            subject="Error OpenAI - CV Assistant",
+            error=e,
+            context={
+                "model": model,
+                "messages": messages,
+                "extra": context
+            }
+        )
+        raise
+
+def safe_gemini_evaluate(messages):
+    try:
+        response = gemini.beta.chat.completions.parse(
+            model="gemini-flash-latest",
+            messages=messages,
+            response_format=Evaluation
+        )
+
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise ValueError("Parsing Gemini devolvió None")
+
+        return parsed
+
+    except Exception as e:
+        send_error_email(
+            subject="Error Gemini Evaluation - CV Assistant",
+            error=e,
+            context={"messages": messages}
+        )
+        raise
 
 class Evaluation(BaseModel):
     is_acceptable: bool
     retroalimentation: str
 
-prompt_evaluation_system = f"Eres un evaluador que decide si una respuesta a una pregunta es acedptable. " + \
+prompt_evaluation_system = f"Eres un evaluador que decide si una respuesta a una pregunta es aceptable. " + \
     "Se te proporciona una conversación entre un usuario y un agente. Tu tarea es decidir si la última " + \
     "respuesta del agente es de calidad aceptable." + \
     "El agente está interpretando del papel de {name} y está representando a {name} en su sitio web. " + \
@@ -98,8 +117,8 @@ def prompt_evaluator_user(answer, message, history):
 
 def evaluate(answer, message, history) -> Evaluation:
     messages = [{"role": "system", "content": prompt_evaluation_system}] + [{"role": "user", "content": prompt_evaluator_user(answer, message, history)}]
-    answer_eval = gemini.beta.chat.completions.parse(model="gemini-flash-latest", messages=messages, response_format=Evaluation)
-    return answer_eval.choices[0].message.parsed
+    #answer_eval = gemini.beta.chat.completions.parse(model="gemini-flash-latest", messages=messages, response_format=Evaluation)
+    return safe_gemini_evaluate(messages)
 
 # question = "¿Qué idiomas manejas?"
 # messages = [{"role": "system", "content": system_prompt}] + [{"role": "user", "content": question}]
@@ -119,44 +138,85 @@ def rexecute(answer, message, history, retroalimentation):
     new_answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
     return new_answer.choices[0].message.content
 
+# def chatting(message, history):
+#     #system = system_prompt
+#     # Si es la primera vez (no hay historia), ignoramos `message` y pedimos solo el saludo
+#     if not history:
+#         messages = [{"role": "system", "content": system_prompt}]
+#         answer = openai_client.chat.completions.create(
+#             model="o4-mini",
+#             messages=messages
+#         )
+#         chat_response = answer.choices[0].message.content
+#         return chat_response
+#
+#     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
+#     answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
+#     chat_response = answer.choices[0].message.content
+#
+#     evaluation = evaluate(chat_response, message, history)
+#
+#     if evaluation.is_acceptable:
+#         print("Pasó la evaluación - devolviendo respuesta")
+#     else:
+#         print("Falló la evaluación - reintentando")
+#         print(evaluation.retroalimentation)
+#         chat_response = rexecute(chat_response, message, history, evaluation.retroalimentation)
+#     return chat_response
+
 def chatting(message, history):
-    #system = system_prompt
-    # Si es la primera vez (no hay historia), ignoramos `message` y pedimos solo el saludo
-    if not history:
-        messages = [{"role": "system", "content": system_prompt}]
-        answer = openai_client.chat.completions.create(
+    try:
+        if not history:
+            return safe_openai_chat(
+                model="o4-mini",
+                messages=[{"role": "system", "content": system_prompt}],
+                context={"phase": "intro"}
+            )
+
+        messages = [{"role": "system", "content": system_prompt}] + history + [
+            {"role": "user", "content": message}
+        ]
+
+        chat_response = safe_openai_chat(
             model="o4-mini",
-            messages=messages
+            messages=messages,
+            context={"phase": "answer"}
         )
-        chat_response = answer.choices[0].message.content
+
+        evaluation = evaluate(chat_response, message, history)
+
+        if not evaluation.is_acceptable:
+            print("Falló la evaluación - reintentando")
+            chat_response = rexecute(
+                chat_response,
+                message,
+                history,
+                evaluation.retroalimentation
+            )
+        else:
+            print("Pasó la evaluación - devolviendo respuesta")
+
         return chat_response
 
-    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
-    answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
-    chat_response = answer.choices[0].message.content
-
-    evaluation = evaluate(chat_response, message, history)
-
-    if evaluation.is_acceptable:
-        print("Pasó la evaluación - devolviendo respuesta")
-    else:
-        print("Falló la evaluación - reintentando")
-        print(evaluation.retroalimentation)
-        chat_response = rexecute(chat_response, message, history, evaluation.retroalimentation)
-    return chat_response
+    except Exception:
+        # UX controlada
+        return (
+            "Lo siento, en este momento se ha producido un problema técnico. "
+            "He sido notificado automáticamente y lo revisaré en breve."
+        )
 
 intro = (f"Hola, soy {name}, desarrollador de software especializado en COBOL y soluciones multiplataforma. ¿En qué puedo ayudarte hoy?\n\n" + \
          f"Hello, I'm {name}, a software developer specialized in COBOL and multi-platform solutions. How can I help you today?")
 
 chatbot = gr.Chatbot(
     value=[{"role": "assistant", "content": intro}],
-    height=600,           # por ejemplo 600 px en vez de 400
+    height=500,
 )
 
 gr.ChatInterface(
     fn=chatting,
     chatbot=chatbot,
-    title="Asistente del currículum de Miguel de la Ossa Abellán",
+    title=f"Asistente del currículum de {name}"
 ).launch()
 
 gr.ChatInterface(chatting).launch()
