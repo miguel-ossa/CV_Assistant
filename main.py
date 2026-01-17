@@ -1,7 +1,6 @@
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from numpy.f2py.auxfuncs import throw_error
 from openai import OpenAI
 import pdfplumber
 from pydantic import BaseModel
@@ -288,6 +287,6 @@ gr.ChatInterface(
     fn=chatting,
     chatbot=chatbot,
     title=f"Asistente del currículum de {name}"
-).queue().launch()
+).queue().launch(server_name="0.0.0.0", server_port=7860)
 
-gr.ChatInterface(chatting).launch()
+#gr.ChatInterface(chatting).launch(server_name="0.0.0.0", server_port=7860)
