@@ -1,4 +1,5 @@
-Miguel de la Ossa Abellán is a programmer analyst with extensive experience in COBOL and other languages in mainframe and PC environments.
+Miguel de la Ossa Abellán is a programmer analyst with extensive experience in COBOL and other languages
+in mainframe and PC environments.
 Born in the city of Mataró, Spain, in 1968, his work has always been related to software development,
 mainly in COBOL, although he has also used other languages such as BASIC, Dataflex, Java, C, C++, C#, and Python.
 He combines his interest in computing with other interests such as music, reading, and researching various topics.

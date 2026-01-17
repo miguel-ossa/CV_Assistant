@@ -1,0 +1,23 @@
+# fly.toml app configuration file generated for cv-assistant-winter-dawn-1459 on 2026-01-17T16:27:50+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'cv-assistant-winter-dawn-1459'
+primary_region = 'lhr'
+
+[build]
+
+[http_service]
+  internal_port = 7860
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '4gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 4096
