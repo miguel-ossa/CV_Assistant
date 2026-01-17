@@ -1,38 +1,59 @@
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 import os
-import traceback
 from datetime import datetime
+import smtplib
+import ssl
+from email.message import EmailMessage
+import traceback
+from config import EMAIL_ALERTS_ENABLED
+
 
 def send_error_email(
     subject: str,
     error: Exception,
     context: dict | None = None
 ):
+    if not EMAIL_ALERTS_ENABLED:
+        # Fallback mínimo
+        print(f"[ALERTA DESACTIVADA] {subject}: {error}")
+        return
     try:
-        html = f"""
-        <h3>Error en CV Assistant</h3>
-        <p><b>Fecha:</b> {datetime.utcnow().isoformat()} UTC</p>
-        <p><b>Tipo:</b> {type(error).__name__}</p>
-        <p><b>Mensaje:</b></p>
-        <pre>{str(error)}</pre>
-        <p><b>Traceback:</b></p>
-        <pre>{traceback.format_exc()}</pre>
-        """
+        msg = EmailMessage()
+        msg["From"] = os.getenv("ALERT_EMAIL_FROM")
+        msg["To"] = os.getenv("ALERT_EMAIL_TO")
+        msg["Subject"] = subject
+
+        body = f"""
+    Error en CV Assistant
+
+    Fecha: {datetime.utcnow().isoformat()} UTC
+    Tipo: {type(error).__name__}
+
+    Mensaje:
+    {str(error)}
+
+    Traceback:
+    {traceback.format_exc()}
+    """
 
         if context:
-            html += "<p><b>Contexto:</b></p><pre>" + str(context) + "</pre>"
+            body += f"\nContexto:\n{context}"
 
-        message = Mail(
-            from_email="miguel.ossa@proton.me",
-            to_emails=["miguel.ossa@proton.me"],
-            subject=subject,
-            html_content=html
-        )
+        msg.set_content(body)
 
-        sg = SendGridAPIClient(os.environ.get("SENDGRID_API_KEY"))
-        sg.send(message)
+        context_ssl = ssl.create_default_context()
+
+        with smtplib.SMTP(
+                os.getenv("SMTP_HOST"),
+                int(os.getenv("SMTP_PORT")),
+                timeout=10
+        ) as server:
+            server.starttls(context=context_ssl)
+            server.login(
+                os.getenv("SMTP_USER"),
+                os.getenv("SMTP_PASSWORD")
+            )
+            server.send_message(msg)
 
     except Exception:
-        # Nunca permitas que el sistema de alertas rompa la app
+        # Nunca romper la app por alertas
         pass

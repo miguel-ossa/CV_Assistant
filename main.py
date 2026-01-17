@@ -1,11 +1,13 @@
 from collections import defaultdict
 
 from dotenv import load_dotenv
+from numpy.f2py.auxfuncs import throw_error
 from openai import OpenAI
 import pdfplumber
 from pydantic import BaseModel
 import gradio as gr
 from alerts import *
+from config import EMAIL_ALERTS_ENABLED
 
 MAX_TOKENS_PER_IP = 5_000
 token_usage = defaultdict(int)
@@ -25,6 +27,10 @@ def register_token_usage(ip: str, texts: list[str]):
 abuse_notified = set()
 
 load_dotenv(override=True)
+
+if not EMAIL_ALERTS_ENABLED:
+    print("⚠️Alertas por email desactivadas.")
+
 openai_client = OpenAI()
 
 gemini = OpenAI(
@@ -165,7 +171,7 @@ def rexecute(answer, message, history, retroalimentation):
         "\nAcabas de intentar responder, pero el control de calidad rechazó tu respuesta.\n"
     system_prompt_updated += f"## Tu respuesta intentada:\n{answer}\n\n"
     system_prompt_updated += f"## Razón del rechazo:\n{retroalimentation}\n\n"
-    print(f"{system_prompt_updated}")
+    print(f"{retroalimentation}")
     messages = [{"role": "system", "content": system_prompt_updated}] + history + [{"role": "user", "content": message}]
     new_answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
     return new_answer.choices[0].message.content
@@ -255,8 +261,16 @@ def chatting(message, history, request: gr.Request | None = None):
 
         return chat_response
 
-    except Exception:
+    except Exception as e:
         # UX controlada
+        send_error_email(
+            subject=f"Error técnico: {e}",
+            error=e,
+            context={
+                "ip": ip,
+                "message": "Lo siento, en este momento se ha producido un problema técnico. "
+            }
+        )
         return (
             "Lo siento, en este momento se ha producido un problema técnico. "
             "He sido notificado automáticamente y lo revisaré en breve."
