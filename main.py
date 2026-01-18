@@ -171,7 +171,7 @@ def manage_tools(tool_calls):
         if tool_name == "register_proposal":
             result = register_proposal(**args)
         else:
-            result = {"error": "Herramienta no existe"}
+            result = {"error": "La herramienta solicitada no existe"}
         results.append({
             "role": "tool",
             "content": json.dumps(result),
