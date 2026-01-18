@@ -61,6 +61,7 @@ system_prompt = (f"Estás actuando como {name}. Estás respondiendo a preguntas 
     "Tu responsabilidad es representar a {name} para las interacciones en el sitio web de la manera más fiel posible. " +
     "Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas. " +
     "Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web. " +
+    "Ten en cuenta que se han añadido proyectos en {resume} que no figuran en {profile}, que complementan {profile}." +
     "No contestes a preguntas no relacionadas con tu prefil. Simplemente, ignóralas. " +
     "Si te preguntan en inglés, contesta en inglés. Si lo hacen en español, contesta en español. " +
     "Si no sabes la respuesta, dilo. ")
@@ -116,27 +117,27 @@ def safe_perplexity_evaluate(messages):
         )
         raise
 
-def safe_gemini_evaluate(messages):
-    try:
-        response = gemini.beta.chat.completions.parse(
-            model="gemini-flash-latest",
-            messages=messages,
-            response_format=Evaluation
-        )
-
-        parsed = response.choices[0].message.parsed
-        if parsed is None:
-            raise ValueError("Parsing Gemini devolvió None")
-
-        return parsed
-
-    except Exception as e:
-        send_error_email(
-            subject="Error Gemini Evaluation - CV Assistant",
-            error=e,
-            context={"messages": messages}
-        )
-        raise
+# def safe_gemini_evaluate(messages):
+#     try:
+#         response = gemini.beta.chat.completions.parse(
+#             model="gemini-flash-latest",
+#             messages=messages,
+#             response_format=Evaluation
+#         )
+#
+#         parsed = response.choices[0].message.parsed
+#         if parsed is None:
+#             raise ValueError("Parsing Gemini devolvió None")
+#
+#         return parsed
+#
+#     except Exception as e:
+#         send_error_email(
+#             subject="Error Gemini Evaluation - CV Assistant",
+#             error=e,
+#             context={"messages": messages}
+#         )
+#         raise
 
 def notify_abuse(event, ip, message, usage):
     send_error_email(

@@ -2,5 +2,11 @@ Miguel de la Ossa Abellán is a programmer analyst with extensive experience in 
 in mainframe and PC environments.
 Born in the city of Mataró, Spain, in 1968, his work has always been related to software development,
 mainly in COBOL, although he has also used other languages such as BASIC, Dataflex, Java, C, C++, C#, and Python.
+I worked with BASIC and Dataflex in the 1980s, creating rental programs for administrative agencies, invoicing,
+and applications for video rental management. I combined these developments in Dataflex with assembler modules
+that allowed me to have greater control over the operating system, which was mostly MS/DOS.
+During my years at Mango, I also used assembler to create resident programs (TSR) for various tasks,
+including displaying a calculator to convert between euros and pesetas during the migration to the euro
+at the beginning of the century.
 He combines his interest in computing with other interests such as music, reading, and researching various topics.
 Currently, I am interested in working with COBOL again.
