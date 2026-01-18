@@ -255,10 +255,7 @@ def chatting(message, history, request: gr.Request | None = None):
             )
             abuse_notified.add(ip)
 
-        return (
-            "Has alcanzado el límite de uso para esta sesión."
-            "Si deseas continuar, contáctame en otro momento."
-        )
+        return ABUSE_MESSAGE
 
     # 2️⃣ Registrar input del usuario
     register_token_usage(ip, [message])
