@@ -1,15 +1,10 @@
 import json
-from collections import defaultdict
-from dotenv import load_dotenv
 from openai import OpenAI
 import pdfplumber
 from pydantic import BaseModel
 import gradio as gr
 from alerts import *
-from config import EMAIL_ALERTS_ENABLED
-
-MAX_TOKENS_PER_IP = 5_000
-token_usage = defaultdict(int)
+from config import *
 
 def is_over_budget(ip: str) -> bool:
     return token_usage[ip] >= MAX_TOKENS_PER_IP
@@ -24,8 +19,6 @@ def register_token_usage(ip: str, texts: list[str]):
     return token_usage[ip]
 
 abuse_notified = set()
-
-load_dotenv(override=True)
 
 if not EMAIL_ALERTS_ENABLED:
     print("⚠️Alertas por email desactivadas.")
