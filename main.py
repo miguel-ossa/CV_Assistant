@@ -37,6 +37,11 @@ gemini = OpenAI(
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
 )
 
+perplexity = OpenAI(
+    api_key=os.getenv("PERPLEXITY_API_KEY"),
+    base_url="https://api.perplexity.ai"
+)
+
 profile = ""
 with pdfplumber.open("profile.pdf") as pdf:
     for page in pdf.pages:
@@ -86,6 +91,28 @@ def safe_openai_chat(model, messages, context=None):
                 "messages": messages,
                 "extra": context
             }
+        )
+        raise
+
+def safe_perplexity_evaluate(messages):
+    try:
+        response = perplexity.chat.completions.parse(
+            model="sonar",
+            messages=messages,
+            response_format=Evaluation
+        )
+
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise ValueError("Parsing Perplexity devolvió None")
+
+        return parsed
+
+    except Exception as e:
+        send_error_email(
+            subject="Error Perplexity Evaluation - CV Assistant",
+            error=e,
+            context={"messages": messages}
         )
         raise
 
@@ -155,7 +182,7 @@ def prompt_evaluator_user(answer, message, history):
 def evaluate(answer, message, history) -> Evaluation:
     messages = [{"role": "system", "content": prompt_evaluation_system}] + [{"role": "user", "content": prompt_evaluator_user(answer, message, history)}]
     #answer_eval = gemini.beta.chat.completions.parse(model="gemini-flash-latest", messages=messages, response_format=Evaluation)
-    return safe_gemini_evaluate(messages)
+    return safe_perplexity_evaluate(messages)
 
 # question = "¿Qué idiomas manejas?"
 # messages = [{"role": "system", "content": system_prompt}] + [{"role": "user", "content": question}]
