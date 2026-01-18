@@ -1,6 +1,5 @@
 import json
 from collections import defaultdict
-
 from dotenv import load_dotenv
 from openai import OpenAI
 import pdfplumber
@@ -49,26 +48,22 @@ with pdfplumber.open("profile.pdf") as pdf:
         profile += page.extract_text() or ""
 profile = profile.replace("MMAANNGGOO", "MANGO")
 
-#print(profile)
-
 with open("resume.txt", "r", encoding="utf-8") as f:
     resume = f.read()
-
-#print(resume)
 
 name = "Miguel de la Ossa Abellán"
 system_prompt = f"""Estás actuando como {name}. Estás respondiendo a preguntas en el sitio web de {name}, 
 particularment preguntas relacionadas con la carrera, antecedentes, habilidades y experiencia de {name}. 
 Tu responsabilidad es representar a {name} para las interacciones en el sitio web de la manera más fiel posible. 
 Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas.
-Ten en cuenta que se han añadido proyectos en {resume} que no figuran en {profile}, que complementan {profile}.
+Ten en cuenta que se han añadido proyectos en {resume} que no figuran en {profile}, pero que lo complementan.
 
 INSTRUCCIONES IMPORTANTES: 
 -Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web.
--No contestes a preguntas no relacionadas con tu prefil. Simplemente, ignóralas.
+-No contestes a preguntas no relacionadas con tu perfil. Simplemente, ignóralas.
 -Si el usuario muestra interés en contactarte con una propuesta laboral, pide su email y regístralo usando 
 la herramienta 'register_proposal', pero no preguntes por detalles adicionales. Simplemente, informa que registraste
-la propouesta.
+la propuesta.
 -Responde en el idioma en el que te pregunten. 
 -Si no sabes la respuesta, dilo.
 
@@ -79,8 +74,6 @@ la propouesta.
 {profile}
 
 Con este contexto, por favor chatea con el usuario, manteniéndote siempre en el personaje de {name}."""
-
-#print(system_prompt)
 
 def safe_openai_chat(model, messages, tools, context=None):
     try:
@@ -149,7 +142,7 @@ def register_proposal(email, name="No proporcionado", details="No proporcionados
 
 register_proposal_tool = {
     "name" : "register_proposal",
-    "description": "Usa esta herramienta cuando un usuario quiera enviarme una propuesta y proporciona su email",
+    "description": "Usa esta herramienta cuando un usuario quiera enviar una propuesta y proporciona su email",
     "parameters": {
             "type": "object",
             "properties": {
@@ -193,28 +186,6 @@ def manage_tools(tool_calls):
         })
     return results
 
-# def safe_gemini_evaluate(messages):
-#     try:
-#         response = gemini.beta.chat.completions.parse(
-#             model="gemini-flash-latest",
-#             messages=messages,
-#             response_format=Evaluation
-#         )
-#
-#         parsed = response.choices[0].message.parsed
-#         if parsed is None:
-#             raise ValueError("Parsing Gemini devolvió None")
-#
-#         return parsed
-#
-#     except Exception as e:
-#         send_error_email(
-#             subject="Error Gemini Evaluation - CV Assistant",
-#             error=e,
-#             context={"messages": messages}
-#         )
-#         raise
-
 def notify_abuse(event, ip, message, usage):
     send_error_email(
         subject=f"Abuso detectado: {event}",
@@ -230,26 +201,26 @@ class Evaluation(BaseModel):
     is_acceptable: bool
     retroalimentation: str
 
-prompt_evaluation_system = f"Eres un evaluador que decide si una respuesta a una pregunta es aceptable. " + \
-    "Se te proporciona una conversación entre un usuario y un agente. Tu tarea es decidir si la última " + \
-    "respuesta del agente es de calidad aceptable." + \
-    "El agente está interpretando del papel de {name} y está representando a {name} en su sitio web. " + \
-    "Se ha instruido al agente para que sea profesional y atractivo, como si hablara con un cliente potencial " + \
-    "o futuro empleador que se encontró con el sitio web. " + \
-    "Pero debes asegurarte de que no inventa nada que no esté en su resumen ni en los detalles de LinkedIn; " + \
-    "controla que el agente no cree detalles inexistentes. " + \
-    "Si el agente acepta una propuesta, acepta la respuesta de forma incondicional. " + \
-    "Se ha proporcionado al agente el contexto sobre {name} en forma de su resumen y detalles en LinkedIn. " + \
-    "Aquí está la información:"
+prompt_evaluation_system = f"""Eres un evaluador que decide si una respuesta a una pregunta es aceptable.
+Se te proporciona una conversación entre un usuario y un agente. Tu tarea es decidir si la última
+respuesta del agente es de calidad aceptable.
+El agente está interpretando del papel de {name} y está representando a {name} en su sitio web.
+Se ha instruído al agente para que sea profesional y atractivo, como si hablara con un cliente potencial
+o futuro empleador que se encontró con el sitio web.
+Pero debes asegurarte de que no inventa nada que no esté en el resumen ni en los detalles de LinkedIn;
+controla que el agente no cree detalles inexistentes.
+Si el agente acepta una propuesta, acepta la respuesta de forma incondicional.
+Se ha proporcionado al agente el contexto sobre {name} en forma de su resumen y detalles en LinkedIn.
+Aquí está la información:
 
-# "Tampoco aceptes ninguna propuesta de trabajo. En ese caso, invita al posible empleador a enviar un " + \
-# "email a la dirección que figura en el perfil de LinkedIn o en el currículum. " + \
+## Resumen:
+{resume}
 
-prompt_evaluation_system += f"\n\n## Resumen:\n{resume}\n\n## Perfil de LinedIn:\n{profile}\n\n"
-prompt_evaluation_system += f"Con este contexto, por favor evalúa la última respuesta, respondiendo si la respuesta " + \
-    "es aceptable y tu retroalimentación."
+## Perfil de LinkedIn:
+{profile}
 
-# print(prompt_evaluation_system)
+Con este contexto, por favor evalúa la última respuesta, respondiendo si la respuesta
+es aceptable y tu retroalimentación."""
 
 def prompt_evaluator_user(answer, message, history):
     user_prompt = f"Aquí está la conversación entre el usuario y el agente:\n\n{history}\n\n"
@@ -262,15 +233,6 @@ def evaluate(answer, message, history) -> Evaluation:
     messages = [{"role": "system", "content": prompt_evaluation_system}] + [{"role": "user", "content": prompt_evaluator_user(answer, message, history)}]
     #answer_eval = gemini.beta.chat.completions.parse(model="gemini-flash-latest", messages=messages, response_format=Evaluation)
     return safe_perplexity_evaluate(messages)
-
-# question = "¿Qué idiomas manejas?"
-# messages = [{"role": "system", "content": system_prompt}] + [{"role": "user", "content": question}]
-# answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
-# chat_response = answer.choices[0].message.content
-#
-# print(chat_response)
-
-# print(evaluate(chat_response, question, messages[:1]))
 
 def rexecute(answer, message, history, retroalimentation):
     system_prompt_updated = system_prompt + "\n\n## Respuesta anterior rechazada." + \
@@ -301,8 +263,8 @@ def chatting(message, history, request: gr.Request | None = None):
             abuse_notified.add(ip)
 
         return (
-            "Has alcanzado el límite de uso para esta sesión. "
-            "Si deseas continuar, contáctame directamente."
+            "Has alcanzado el límite de uso para esta sesión."
+            "Si deseas continuar, contáctame en otro momento."
         )
 
     # 2️⃣ Registrar input del usuario
@@ -371,4 +333,3 @@ gr.ChatInterface(
     title=f"Asistente del currículum de {name}"
 ).queue().launch(server_name="0.0.0.0", server_port=7860)
 
-#gr.ChatInterface(chatting).launch(server_name="0.0.0.0", server_port=7860)
