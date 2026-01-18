@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 
 from dotenv import load_dotenv
@@ -56,27 +57,50 @@ with open("resume.txt", "r", encoding="utf-8") as f:
 #print(resume)
 
 name = "Miguel de la Ossa Abellán"
-system_prompt = (f"Estás actuando como {name}. Estás respondiendo a preguntas en el sitio web de {name}, " +
-    "particularment preguntas relacionadas con la carrera, antecedentes, habilidades y experiencia de {name}. " +
-    "Tu responsabilidad es representar a {name} para las interacciones en el sitio web de la manera más fiel posible. " +
-    "Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas. " +
-    "Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web. " +
-    "Ten en cuenta que se han añadido proyectos en {resume} que no figuran en {profile}, que complementan {profile}." +
-    "No contestes a preguntas no relacionadas con tu prefil. Simplemente, ignóralas. " +
-    "Si te preguntan en inglés, contesta en inglés. Si lo hacen en español, contesta en español. " +
-    "Si no sabes la respuesta, dilo. ")
+system_prompt = f"""Estás actuando como {name}. Estás respondiendo a preguntas en el sitio web de {name}, 
+particularment preguntas relacionadas con la carrera, antecedentes, habilidades y experiencia de {name}. 
+Tu responsabilidad es representar a {name} para las interacciones en el sitio web de la manera más fiel posible. 
+Se te proporciona un resumen de los antecedentes de {name} y el perfil que puedes usar para responder preguntas.
+Ten en cuenta que se han añadido proyectos en {resume} que no figuran en {profile}, que complementan {profile}.
 
-system_prompt += f"\n\n## Resumen:\n{resume}\n\n## Perfil de LinedIn:\n{profile}\n\n"
-system_prompt += f"Con este contexto, por favor chatea con el usuario, manteniéndote siempre en el personaje de {name}."
+INSTRUCCIONES IMPORTANTES: 
+-Sé profesional y atractivo, como si hablaras con un cliente potencial o futuro empleador que se encontró con el sitio web.
+-No contestes a preguntas no relacionadas con tu prefil. Simplemente, ignóralas.
+-Si el usuario muestra interés en contactarte con una propuesta laboral, pide su email y regístralo usando 
+la herramienta 'register_proposal', pero no preguntes por detalles adicionales. Simplemente, informa que registraste
+la propouesta.
+-Si te preguntan en inglés, contesta en inglés. Si lo hacen en español, contesta en español. 
+-Si no sabes la respuesta, dilo.
+
+## Resumen:
+{resume}
+
+## Perfil de LinedIn:
+{profile}
+
+Con este contexto, por favor chatea con el usuario, manteniéndote siempre en el personaje de {name}."""
 
 #print(system_prompt)
 
-def safe_openai_chat(model, messages, context=None):
+def safe_openai_chat(model, messages, tools, context=None):
     try:
-        response = openai_client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
+        finished = False
+        response = {}
+        while not finished:
+            response = openai_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools,
+            )
+            end_reason = response.choices[0].finish_reason
+            if end_reason == "tool_calls":
+                ia_message = response.choices[0].message
+                tool_calls = ia_message.tool_calls
+                results = manage_tools(tool_calls)
+                messages.append(ia_message)
+                messages.extend(results)
+            else:
+                finished = True
 
         if not response.choices:
             raise ValueError("Respuesta sin choices")
@@ -116,6 +140,58 @@ def safe_perplexity_evaluate(messages):
             context={"messages": messages}
         )
         raise
+
+def register_proposal(email, name="No proporcionado", details="No proporcionados"):
+    proposal = f"Contacto {name} con email {email} con propuesta: {details}"
+    print(proposal)
+    send_email(proposal)
+    return {"register": "success"}
+
+register_proposal_tool = {
+    "name" : "register_proposal",
+    "description": "Usa esta herramienta cuando un usuario quiera enviarme una propuesta y proporciona su email",
+    "parameters": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "description": "Dirección de email del usuario"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Nombre del usuario, si lo proporcionó"
+                },
+                "details": {
+                    "type": "string",
+                    "description": "Detalles de la propuesta, si los proporcionó"
+                }
+            },
+            "required": ["email"],
+            "additionalProperties": False
+    }
+}
+
+registered_tools = [
+    {"type": "function", "function": register_proposal_tool}
+]
+
+def manage_tools(tool_calls):
+    results = []
+    for call in tool_calls:
+        tool_name = call.function.name
+        args = json.loads(call.function.arguments)
+        print(f"Ejecutando herramienta {tool_name}", flush=True)
+        result = {}
+        if tool_name == "register_proposal":
+            result = register_proposal(**args)
+        else:
+            result = {"error": "Herramienta no existe"}
+        results.append({
+            "role": "tool",
+            "content": json.dumps(result),
+            "tool_call_id": call.id
+        })
+    return results
 
 # def safe_gemini_evaluate(messages):
 #     try:
@@ -162,10 +238,12 @@ prompt_evaluation_system = f"Eres un evaluador que decide si una respuesta a una
     "o futuro empleador que se encontró con el sitio web. " + \
     "Pero debes asegurarte de que no inventa nada que no esté en su resumen ni en los detalles de LinkedIn; " + \
     "controla que el agente no cree detalles inexistentes. " + \
-    "Tampoco aceptes ninguna propuesta de trabajo. En ese caso, invita al posible empleador a enviar un " + \
-    "email a la dirección que figura en el perfil de LinkedIn o en el currículum. " + \
+    "Si el agente acepta una propuesta, acepta la respuesta de forma incondicional. " + \
     "Se ha proporcionado al agente el contexto sobre {name} en forma de su resumen y detalles en LinkedIn. " + \
     "Aquí está la información:"
+
+# "Tampoco aceptes ninguna propuesta de trabajo. En ese caso, invita al posible empleador a enviar un " + \
+# "email a la dirección que figura en el perfil de LinkedIn o en el currículum. " + \
 
 prompt_evaluation_system += f"\n\n## Resumen:\n{resume}\n\n## Perfil de LinedIn:\n{profile}\n\n"
 prompt_evaluation_system += f"Con este contexto, por favor evalúa la última respuesta, respondiendo si la respuesta " + \
@@ -204,32 +282,6 @@ def rexecute(answer, message, history, retroalimentation):
     new_answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
     return new_answer.choices[0].message.content
 
-# def chatting(message, history):
-#     #system = system_prompt
-#     # Si es la primera vez (no hay historia), ignoramos `message` y pedimos solo el saludo
-#     if not history:
-#         messages = [{"role": "system", "content": system_prompt}]
-#         answer = openai_client.chat.completions.create(
-#             model="o4-mini",
-#             messages=messages
-#         )
-#         chat_response = answer.choices[0].message.content
-#         return chat_response
-#
-#     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
-#     answer = openai_client.chat.completions.create(model="o4-mini", messages=messages)
-#     chat_response = answer.choices[0].message.content
-#
-#     evaluation = evaluate(chat_response, message, history)
-#
-#     if evaluation.is_acceptable:
-#         print("Pasó la evaluación - devolviendo respuesta")
-#     else:
-#         print("Falló la evaluación - reintentando")
-#         print(evaluation.retroalimentation)
-#         chat_response = rexecute(chat_response, message, history, evaluation.retroalimentation)
-#     return chat_response
-
 def chatting(message, history, request: gr.Request | None = None):
     ip = "unknown"
 
@@ -261,16 +313,17 @@ def chatting(message, history, request: gr.Request | None = None):
             return safe_openai_chat(
                 model="o4-mini",
                 messages=[{"role": "system", "content": system_prompt}],
+                tools=registered_tools,
                 context={"phase": "intro"}
             )
 
         messages = [{"role": "system", "content": system_prompt}] + history + [
             {"role": "user", "content": message}
         ]
-
         chat_response = safe_openai_chat(
             model="o4-mini",
             messages=messages,
+            tools=registered_tools,
             context={"phase": "answer"}
         )
 
